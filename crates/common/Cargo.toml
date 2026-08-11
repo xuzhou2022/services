@@ -1,0 +1,10 @@
+[package]
+name = "common"
+description = "Shared types and helpers used across the services workspace."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
