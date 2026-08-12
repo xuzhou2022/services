@@ -2,8 +2,10 @@
 //!
 //! Anything used by more than one service crate belongs here.
 
+use serde::Serialize;
+
 /// Identifies a running service instance in logs and health responses.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ServiceInfo {
     pub name: &'static str,
     pub version: &'static str,
