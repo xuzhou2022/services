@@ -1,5 +1,7 @@
 # services
 
+[![CI](https://github.com/xuzhou2022/services/actions/workflows/ci.yml/badge.svg)](https://github.com/xuzhou2022/services/actions/workflows/ci.yml)
+
 A Cargo workspace for backend services.
 
 ## Status
@@ -52,6 +54,14 @@ curl localhost:3000/health
 A variable that is set but unparseable is a startup error rather than a
 silent fall back to the default. The service drains in-flight requests on
 Ctrl-C or `SIGTERM`.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to
+`main`, in three jobs: `fmt + clippy`, `test` (including doctests), and an
+`msrv` build pinned to the `rust-version` declared in `Cargo.toml`. All of
+them use `--locked`, so a stale `Cargo.lock` fails the build rather than
+being silently updated.
 
 ## Adding a service
 
