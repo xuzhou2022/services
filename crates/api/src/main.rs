@@ -23,9 +23,14 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(config.addr).await?;
 
     // Resolved rather than configured: port 0 binds an OS-assigned port.
-    tracing::info!(addr = %listener.local_addr()?, "{} listening", INFO.banner());
+    tracing::info!(
+        addr = %listener.local_addr()?,
+        timeout = ?config.request_timeout,
+        "{} listening",
+        INFO.banner(),
+    );
 
-    axum::serve(listener, router())
+    axum::serve(listener, router(&config))
         .with_graceful_shutdown(shutdown())
         .await?;
 
