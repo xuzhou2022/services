@@ -45,15 +45,30 @@ curl localhost:3000/health
 
 ## Configuration
 
-| Variable | Default   | Notes                                          |
-| -------- | --------- | ---------------------------------------------- |
-| `HOST`   | `0.0.0.0` | IP address, not a hostname                     |
-| `PORT`   | `3000`    | `0` binds an OS-assigned port                  |
-| `RUST_LOG` | `info`  | Standard `tracing` env filter                  |
+| Variable               | Default   | Notes                            |
+| ---------------------- | --------- | -------------------------------- |
+| `HOST`                 | `0.0.0.0` | IP address, not a hostname       |
+| `PORT`                 | `3000`    | `0` binds an OS-assigned port    |
+| `REQUEST_TIMEOUT_SECS` | `30`      | Per-request deadline, in whole seconds |
+| `RUST_LOG`             | `info`    | Standard `tracing` env filter    |
 
 A variable that is set but unparseable is a startup error rather than a
 silent fall back to the default. The service drains in-flight requests on
 Ctrl-C or `SIGTERM`.
+
+## Middleware
+
+Every request passes through, outermost first:
+
+1. `x-request-id` — reused if the client sends one, otherwise a fresh UUID.
+2. Propagation of that ID onto the response. It sits above the timeout so a
+   timed-out request is still traceable.
+3. A `tracing` span carrying method, URI, and request ID, so log lines
+   correlate with the header the client saw.
+4. A per-request timeout returning `408 Request Timeout`.
+
+Add routes in `routes()`; they inherit the whole stack. `apply_middleware`
+is public so tests can wrap a router of their own.
 
 ## CI
 

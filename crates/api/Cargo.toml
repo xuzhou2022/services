@@ -12,6 +12,8 @@ axum = "0.8.9"
 common.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+tower = "0.5.3"
+tower-http = { version = "0.7.0", features = ["trace", "timeout", "request-id", "util"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
