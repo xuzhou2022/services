@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Generated: collapse in diffs and keep out of language stats.
+Cargo.lock linguist-generated=true
