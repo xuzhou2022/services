@@ -11,6 +11,11 @@ rust-version = "1.86"
 license = "MIT"
 repository = "https://github.com/xuzhou2022/services"
 
+[workspace.lints.rust]
+# Nothing here has a reason to reach for unsafe; make that enforceable
+# rather than a convention.
+unsafe_code = "forbid"
+
 [workspace.dependencies]
 common = { path = "crates/common" }
 
