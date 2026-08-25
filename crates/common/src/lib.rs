@@ -16,7 +16,14 @@ impl ServiceInfo {
         Self { name, version }
     }
 
-    /// Single-line banner emitted on startup, e.g. `api v0.1.0`.
+    /// Single-line banner emitted on startup.
+    ///
+    /// ```
+    /// use common::ServiceInfo;
+    ///
+    /// let info = ServiceInfo::new("api", "0.1.0");
+    /// assert_eq!(info.banner(), "api v0.1.0");
+    /// ```
     pub fn banner(&self) -> String {
         format!("{} v{}", self.name, self.version)
     }
