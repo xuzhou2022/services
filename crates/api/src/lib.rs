@@ -24,16 +24,40 @@ pub const INFO: ServiceInfo = ServiceInfo::new(env!("CARGO_PKG_NAME"), env!("CAR
 const DEFAULT_PORT: u16 = 3000;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
+/// How startup and request logs are rendered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFormat {
+    /// Human-readable, for local development.
+    #[default]
+    Text,
+    /// One JSON object per line, for log aggregators.
+    Json,
+}
+
+impl std::str::FromStr for LogFormat {
+    type Err = ();
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "text" => Ok(Self::Text),
+            "json" => Ok(Self::Json),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Runtime settings, read from the environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub addr: SocketAddr,
     pub request_timeout: Duration,
+    pub log_format: LogFormat,
 }
 
 impl Config {
-    /// Reads `HOST` (default `0.0.0.0`), `PORT` (default `3000`), and
-    /// `REQUEST_TIMEOUT_SECS` (default `30`).
+    /// Reads `HOST` (default `0.0.0.0`), `PORT` (default `3000`),
+    /// `REQUEST_TIMEOUT_SECS` (default `30`), and `LOG_FORMAT`
+    /// (`text` or `json`, default `text`).
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::resolve(|key| env::var(key).ok())
     }
@@ -65,9 +89,18 @@ impl Config {
             None => DEFAULT_TIMEOUT_SECS,
         };
 
+        let log_format = match lookup("LOG_FORMAT") {
+            Some(raw) => raw.parse().map_err(|()| ConfigError::Invalid {
+                key: "LOG_FORMAT",
+                raw,
+            })?,
+            None => LogFormat::default(),
+        };
+
         Ok(Self {
             addr: SocketAddr::new(host, port),
             request_timeout: Duration::from_secs(timeout_secs),
+            log_format,
         })
     }
 }
@@ -188,6 +221,7 @@ mod tests {
             config.request_timeout,
             Duration::from_secs(DEFAULT_TIMEOUT_SECS)
         );
+        assert_eq!(config.log_format, LogFormat::Text);
         assert_eq!(config, Config::default());
     }
 
@@ -197,11 +231,20 @@ mod tests {
             "HOST" => Some("127.0.0.1".to_string()),
             "PORT" => Some("8080".to_string()),
             "REQUEST_TIMEOUT_SECS" => Some("5".to_string()),
+            "LOG_FORMAT" => Some("json".to_string()),
             _ => None,
         })
         .expect("overrides are valid");
         assert_eq!(config.addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
         assert_eq!(config.request_timeout, Duration::from_secs(5));
+        assert_eq!(config.log_format, LogFormat::Json);
+    }
+
+    #[test]
+    fn unknown_log_format_is_rejected() {
+        let err = Config::resolve(|key| (key == "LOG_FORMAT").then(|| "logfmt".to_string()))
+            .expect_err("only text and json are supported");
+        assert_eq!(err.to_string(), r#"LOG_FORMAT is not valid: "logfmt""#);
     }
 
     #[test]

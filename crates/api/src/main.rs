@@ -1,15 +1,24 @@
-use api::{Config, INFO, router};
+use api::{Config, INFO, LogFormat, router};
 use std::process::ExitCode;
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::{EnvFilter, fmt};
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
+    // Config is read before logging is initialized, since it chooses the log
+    // format. A failure here therefore reports on stderr rather than through
+    // tracing.
+    let config = match Config::from_env() {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("{} failed to start: {error}", INFO.banner());
+            return ExitCode::FAILURE;
+        }
+    };
 
-    match serve().await {
+    init_tracing(config.log_format);
+
+    match serve(config).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(%error, "{} failed to start", INFO.banner());
@@ -18,8 +27,17 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn serve() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::from_env()?;
+fn init_tracing(format: LogFormat) {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    let builder = fmt().with_env_filter(filter);
+
+    match format {
+        LogFormat::Text => builder.init(),
+        LogFormat::Json => builder.json().flatten_event(true).init(),
+    }
+}
+
+async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(config.addr).await?;
 
     // Resolved rather than configured: port 0 binds an OS-assigned port.
