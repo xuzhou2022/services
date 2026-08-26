@@ -50,9 +50,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.86"
+      # Versioned ref rather than @master, which is mutable.
+      - uses: dtolnay/rust-toolchain@1.86.0
       - uses: Swatinem/rust-cache@v2
       # Verifies the rust-version claimed in Cargo.toml still builds.
       - run: cargo check --workspace --all-targets --locked
