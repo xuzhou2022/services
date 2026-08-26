@@ -50,11 +50,20 @@ curl localhost:3000/health
 | `HOST`                 | `0.0.0.0` | IP address, not a hostname       |
 | `PORT`                 | `3000`    | `0` binds an OS-assigned port    |
 | `REQUEST_TIMEOUT_SECS` | `30`      | Per-request deadline, in whole seconds |
+| `LOG_FORMAT`           | `text`    | `text` for humans, `json` for aggregators |
 | `RUST_LOG`             | `info`    | Standard `tracing` env filter    |
 
 A variable that is set but unparseable is a startup error rather than a
 silent fall back to the default. The service drains in-flight requests on
 Ctrl-C or `SIGTERM`.
+
+`LOG_FORMAT=json` emits one JSON object per line, with the request ID inside
+`span`, which is what a log aggregator wants:
+
+```json
+{"timestamp":"...","level":"DEBUG","message":"started processing request",
+ "span":{"method":"GET","request_id":"json-trace","uri":"/health"}}
+```
 
 ## Middleware
 
