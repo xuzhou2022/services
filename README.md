@@ -33,10 +33,14 @@ Requires Rust 1.86 or newer (edition 2024).
 
 ```sh
 cargo run -p api     # listens on 0.0.0.0:3000
-cargo test           # run all workspace tests
-cargo fmt --all
-cargo clippy --all-targets -- -D warnings
+cargo test --workspace --all-targets --locked
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
+
+Those are the commands CI runs. `--locked` is the one that matters locally:
+without it cargo quietly refreshes `Cargo.lock`, so a stale lockfile passes
+here and fails in CI.
 
 ```sh
 curl localhost:3000/health
