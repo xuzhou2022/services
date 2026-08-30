@@ -51,7 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # Versioned ref rather than @master, which is mutable.
-      - uses: dtolnay/rust-toolchain@1.86.0
+      - uses: dtolnay/rust-toolchain@1.100.0
       - uses: Swatinem/rust-cache@v2
       # Verifies the rust-version claimed in Cargo.toml still builds.
       - run: cargo check --workspace --all-targets --locked
