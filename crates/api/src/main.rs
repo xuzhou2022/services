@@ -16,7 +16,15 @@ async fn main() -> ExitCode {
         }
     };
 
-    init_tracing(config.log_format);
+    let filter = match log_filter() {
+        Ok(filter) => filter,
+        Err(error) => {
+            eprintln!("{} failed to start: {error}", INFO.banner());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    init_tracing(config.log_format, filter);
 
     match serve(config).await {
         Ok(()) => ExitCode::SUCCESS,
@@ -27,8 +35,21 @@ async fn main() -> ExitCode {
     }
 }
 
-fn init_tracing(format: LogFormat) {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+/// Builds the log filter from `RUST_LOG`, defaulting to `info` when unset.
+///
+/// A malformed `RUST_LOG` is an error rather than a silent fallback, matching
+/// how every other environment variable is treated. The previous behavior
+/// discarded the whole filter on one bad directive, so a typo left the service
+/// logging at `info` while appearing to honor the request.
+fn log_filter() -> Result<EnvFilter, String> {
+    match std::env::var("RUST_LOG") {
+        Ok(raw) => EnvFilter::try_new(&raw)
+            .map_err(|error| format!("RUST_LOG is not valid: {raw:?} ({error})")),
+        Err(_) => Ok(EnvFilter::new("info")),
+    }
+}
+
+fn init_tracing(format: LogFormat, filter: EnvFilter) {
     let builder = fmt().with_env_filter(filter);
 
     match format {
