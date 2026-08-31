@@ -13,3 +13,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # The msrv job pins this to the rust-version in Cargo.toml deliberately.
+      # Dependabot reads the ref as a version and proposes bumping it, which
+      # would compile that job with a newer toolchain and leave the MSRV claim
+      # unverified while the job still reported green.
+      - dependency-name: dtolnay/rust-toolchain
