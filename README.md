@@ -77,7 +77,8 @@ Every request passes through, outermost first:
 2. Propagation of that ID onto the response. It sits above the timeout so a
    timed-out request is still traceable.
 3. A `tracing` span carrying method, URI, and request ID, so log lines
-   correlate with the header the client saw.
+   correlate with the header the client saw. Each response logs one line at
+   `INFO` with status and latency, visible under the default filter.
 4. A per-request timeout returning `408 Request Timeout`.
 
 Add routes in `routes()`; they inherit the whole stack. `apply_middleware`

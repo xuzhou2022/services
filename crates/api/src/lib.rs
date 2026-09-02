@@ -15,9 +15,9 @@ use tower::ServiceBuilder;
 use tower_http::{
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     timeout::TimeoutLayer,
-    trace::{MakeSpan, TraceLayer},
+    trace::{DefaultOnResponse, MakeSpan, TraceLayer},
 };
-use tracing::Span;
+use tracing::{Level, Span};
 
 pub const INFO: ServiceInfo = ServiceInfo::new(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
 
@@ -180,7 +180,14 @@ pub fn apply_middleware(router: Router, config: &Config) -> Router {
         ServiceBuilder::new()
             .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
             .layer(PropagateRequestIdLayer::x_request_id())
-            .layer(TraceLayer::new_for_http().make_span_with(RequestSpan))
+            .layer(
+                TraceLayer::new_for_http()
+                    .make_span_with(RequestSpan)
+                    // tower-http emits this at DEBUG, so with the default
+                    // `info` filter the service logged nothing per request.
+                    // One INFO line per response is the access log.
+                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
+            )
             .layer(TimeoutLayer::with_status_code(
                 StatusCode::REQUEST_TIMEOUT,
                 config.request_timeout,
