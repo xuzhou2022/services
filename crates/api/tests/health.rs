@@ -19,6 +19,7 @@ struct Response {
     status: StatusCode,
     content_type: Option<String>,
     request_id: Option<String>,
+    nosniff: Option<String>,
     body: Value,
 }
 
@@ -35,6 +36,7 @@ async fn send(router: Router, request: Request<Body>) -> Response {
     let status = response.status();
     let content_type = header(header::CONTENT_TYPE.as_str());
     let request_id = header(REQUEST_ID);
+    let nosniff = header("x-content-type-options");
 
     let bytes = response
         .into_body()
@@ -47,6 +49,7 @@ async fn send(router: Router, request: Request<Body>) -> Response {
         status,
         content_type,
         request_id,
+        nosniff,
         body: serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     }
 }
@@ -68,6 +71,7 @@ async fn health_reports_ok_with_service_identity() {
 
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.content_type.as_deref(), Some("application/json"));
+    assert_eq!(response.nosniff.as_deref(), Some("nosniff"));
     assert_eq!(
         response.body,
         json!({
@@ -123,6 +127,8 @@ async fn panicking_handler_becomes_a_500() {
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
     // Caught inside the stack, so the response still gets an id to trace by.
     assert!(response.request_id.is_some());
+    // The header layer sits above catch-panic, so synthesized errors get it.
+    assert_eq!(response.nosniff.as_deref(), Some("nosniff"));
 }
 
 #[tokio::test]

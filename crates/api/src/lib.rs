@@ -3,7 +3,12 @@
 //! The router is built here rather than in `main.rs` so integration tests can
 //! exercise routes and middleware without binding a socket.
 
-use axum::{Json, Router, extract::Request, http::StatusCode, routing::get};
+use axum::{
+    Json, Router,
+    extract::Request,
+    http::{HeaderValue, StatusCode, header},
+    routing::get,
+};
 use common::ServiceInfo;
 use serde::Serialize;
 use std::{
@@ -15,6 +20,7 @@ use tower::ServiceBuilder;
 use tower_http::{
     catch_panic::CatchPanicLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
+    set_header::SetResponseHeaderLayer,
     timeout::TimeoutLayer,
     trace::{DefaultOnResponse, MakeSpan, TraceLayer},
 };
@@ -181,6 +187,12 @@ pub fn apply_middleware(router: Router, config: &Config) -> Router {
         ServiceBuilder::new()
             .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
             .layer(PropagateRequestIdLayer::x_request_id())
+            // Above the timeout and panic layers so the synthesized 408 and
+            // 500 carry it too, not just handler responses.
+            .layer(SetResponseHeaderLayer::overriding(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ))
             .layer(
                 TraceLayer::new_for_http()
                     .make_span_with(RequestSpan)
