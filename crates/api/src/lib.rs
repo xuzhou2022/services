@@ -13,6 +13,7 @@ use std::{
 };
 use tower::ServiceBuilder;
 use tower_http::{
+    catch_panic::CatchPanicLayer,
     request_id::{MakeRequestUuid, PropagateRequestIdLayer, RequestId, SetRequestIdLayer},
     timeout::TimeoutLayer,
     trace::{DefaultOnResponse, MakeSpan, TraceLayer},
@@ -191,7 +192,12 @@ pub fn apply_middleware(router: Router, config: &Config) -> Router {
             .layer(TimeoutLayer::with_status_code(
                 StatusCode::REQUEST_TIMEOUT,
                 config.request_timeout,
-            )),
+            ))
+            // Innermost, so the 500 it produces still travels back out through
+            // the trace and propagation layers. Without it a panicking handler
+            // drops the connection: no status, no access-log line, nothing for
+            // the client or the logs to go on.
+            .layer(CatchPanicLayer::new()),
     )
 }
 

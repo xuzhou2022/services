@@ -104,6 +104,28 @@ async fn client_supplied_request_id_is_preserved() {
 }
 
 #[tokio::test]
+async fn panicking_handler_becomes_a_500() {
+    let exploding = Router::new().route(
+        "/boom",
+        get(|| async {
+            panic!("handler exploded");
+            #[allow(unreachable_code)]
+            ""
+        }),
+    );
+
+    let response = send(
+        api::apply_middleware(exploding, &Config::default()),
+        get_request("/boom"),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    // Caught inside the stack, so the response still gets an id to trace by.
+    assert!(response.request_id.is_some());
+}
+
+#[tokio::test]
 async fn slow_handler_is_cut_off_by_the_timeout() {
     let config = Config {
         request_timeout: Duration::from_millis(50),
