@@ -5,7 +5,7 @@
 
 use axum::{
     Json, Router,
-    extract::Request,
+    extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
     routing::get,
 };
@@ -14,6 +14,10 @@ use serde::Serialize;
 use std::{
     env,
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tower::ServiceBuilder;
@@ -30,6 +34,7 @@ pub const INFO: ServiceInfo = ServiceInfo::new(env!("CARGO_PKG_NAME"), env!("CAR
 
 const DEFAULT_PORT: u16 = 3000;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_DRAIN_SECS: u64 = 5;
 
 /// How startup and request logs are rendered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -59,12 +64,15 @@ pub struct Config {
     pub addr: SocketAddr,
     pub request_timeout: Duration,
     pub log_format: LogFormat,
+    /// How long to keep serving after readiness is withdrawn, giving a load
+    /// balancer time to notice the 503 and stop sending new work.
+    pub shutdown_drain: Duration,
 }
 
 impl Config {
     /// Reads `HOST` (default `0.0.0.0`), `PORT` (default `3000`),
-    /// `REQUEST_TIMEOUT_SECS` (default `30`), and `LOG_FORMAT`
-    /// (`text` or `json`, default `text`).
+    /// `REQUEST_TIMEOUT_SECS` (default `30`), `LOG_FORMAT` (`text` or `json`,
+    /// default `text`), and `SHUTDOWN_DRAIN_SECS` (default `5`).
     pub fn from_env() -> Result<Self, ConfigError> {
         Self::resolve(|key| env::var(key).ok())
     }
@@ -104,10 +112,19 @@ impl Config {
             None => LogFormat::default(),
         };
 
+        let drain_secs = match lookup("SHUTDOWN_DRAIN_SECS") {
+            Some(raw) => raw.parse::<u64>().map_err(|_| ConfigError::Invalid {
+                key: "SHUTDOWN_DRAIN_SECS",
+                raw,
+            })?,
+            None => DEFAULT_DRAIN_SECS,
+        };
+
         Ok(Self {
             addr: SocketAddr::new(host, port),
             request_timeout: Duration::from_secs(timeout_secs),
             log_format,
+            shutdown_drain: Duration::from_secs(drain_secs),
         })
     }
 }
@@ -141,9 +158,53 @@ pub struct Health {
     pub service: ServiceInfo,
 }
 
+/// Tracks whether this instance should be receiving traffic.
+///
+/// Liveness and readiness answer different questions. Liveness is "is the
+/// process working" — a failure means restart me. Readiness is "should I get
+/// new requests" — during shutdown the answer is no, but the process is
+/// perfectly healthy and still finishing in-flight work. Conflating them
+/// means an orchestrator restarts a draining instance instead of routing
+/// around it.
+#[derive(Debug, Clone)]
+pub struct AppState {
+    ready: Arc<AtomicBool>,
+}
+
+/// Deliberately not derived: `AtomicBool::default()` is `false`, which would
+/// make a default-constructed service permanently unready.
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AppState {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            ready: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    #[must_use]
+    pub fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::SeqCst)
+    }
+
+    /// Called when shutdown begins, before in-flight requests are drained.
+    pub fn set_ready(&self, ready: bool) {
+        self.ready.store(ready, Ordering::SeqCst);
+    }
+}
+
 /// The service's routes, without middleware. Add new endpoints here.
-pub fn routes() -> Router {
-    Router::new().route("/health", get(health))
+pub fn routes(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/health/live", get(live))
+        .route("/health/ready", get(ready))
+        .with_state(state)
 }
 
 /// Opens the per-request tracing span with the request ID attached.
@@ -213,8 +274,8 @@ pub fn apply_middleware(router: Router, config: &Config) -> Router {
     )
 }
 
-pub fn router(config: &Config) -> Router {
-    apply_middleware(routes(), config)
+pub fn router(config: &Config, state: AppState) -> Router {
+    apply_middleware(routes(state), config)
 }
 
 async fn health() -> Json<Health> {
@@ -222,6 +283,33 @@ async fn health() -> Json<Health> {
         status: "ok",
         service: INFO.clone(),
     })
+}
+
+/// Liveness: the process is running and serving. Failing this means restart.
+async fn live() -> Json<Health> {
+    Json(Health {
+        status: "ok",
+        service: INFO.clone(),
+    })
+}
+
+/// Readiness: whether to send this instance new traffic. Returns 503 once
+/// shutdown has begun so a load balancer drains it while it finishes what it
+/// already accepted.
+async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
+    let (code, status) = if state.is_ready() {
+        (StatusCode::OK, "ok")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "shutting_down")
+    };
+
+    (
+        code,
+        Json(Health {
+            status,
+            service: INFO.clone(),
+        }),
+    )
 }
 
 #[cfg(test)]

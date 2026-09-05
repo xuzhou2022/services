@@ -1,5 +1,5 @@
-use api::{Config, INFO, LogFormat, router};
-use std::process::ExitCode;
+use api::{AppState, Config, INFO, LogFormat, router};
+use std::{process::ExitCode, time::Duration};
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -69,8 +69,11 @@ async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         INFO.banner(),
     );
 
-    axum::serve(listener, router(&config))
-        .with_graceful_shutdown(shutdown())
+    let state = AppState::new();
+    let drain = config.shutdown_drain;
+
+    axum::serve(listener, router(&config, state.clone()))
+        .with_graceful_shutdown(shutdown(state, drain))
         .await?;
 
     tracing::info!("shutdown complete");
@@ -79,7 +82,13 @@ async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Resolves on Ctrl-C or `SIGTERM`, so container stops drain in flight
 /// requests instead of cutting them off.
-async fn shutdown() {
+///
+/// Readiness flips to false first, then the process keeps serving for
+/// `drain`. That window is the point: once this future resolves the server
+/// stops accepting connections, so a load balancer polling `/health/ready`
+/// would get connection-refused rather than the 503 it needs to see in order
+/// to deregister the instance gracefully.
+async fn shutdown(state: AppState, drain: Duration) {
     let ctrl_c = async {
         let _ = signal::ctrl_c().await;
     };
@@ -100,5 +109,14 @@ async fn shutdown() {
     tokio::select! {
         () = ctrl_c => tracing::info!("received Ctrl-C, draining"),
         () = terminate => tracing::info!("received SIGTERM, draining"),
+    }
+
+    state.set_ready(false);
+
+    if drain.is_zero() {
+        tracing::info!("readiness withdrawn, draining immediately");
+    } else {
+        tracing::info!(?drain, "readiness withdrawn, still serving during drain");
+        tokio::time::sleep(drain).await;
     }
 }

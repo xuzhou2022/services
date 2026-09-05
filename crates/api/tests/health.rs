@@ -1,7 +1,7 @@
 //! Route-level tests: they drive the router directly via `tower`, so no port
 //! is bound and the cases stay independent of the ambient environment.
 
-use api::Config;
+use api::{AppState, Config};
 use axum::{
     Router,
     body::Body,
@@ -62,7 +62,11 @@ fn get_request(path: &str) -> Request<Body> {
 }
 
 async fn get_path(path: &str) -> Response {
-    send(api::router(&Config::default()), get_request(path)).await
+    send(
+        api::router(&Config::default(), AppState::new()),
+        get_request(path),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -103,8 +107,46 @@ async fn client_supplied_request_id_is_preserved() {
         .headers_mut()
         .insert(REQUEST_ID, "trace-me-123".parse().expect("valid header"));
 
-    let response = send(api::router(&Config::default()), request).await;
+    let response = send(api::router(&Config::default(), AppState::new()), request).await;
     assert_eq!(response.request_id.as_deref(), Some("trace-me-123"));
+}
+
+#[tokio::test]
+async fn liveness_is_ok_even_while_draining() {
+    let state = AppState::new();
+    state.set_ready(false);
+
+    let response = send(
+        api::router(&Config::default(), state),
+        get_request("/health/live"),
+    )
+    .await;
+
+    // A draining instance is unhealthy to route to, but must not be restarted.
+    assert_eq!(response.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn readiness_is_ok_until_shutdown_begins() {
+    let state = AppState::new();
+
+    let before = send(
+        api::router(&Config::default(), state.clone()),
+        get_request("/health/ready"),
+    )
+    .await;
+    assert_eq!(before.status, StatusCode::OK);
+    assert_eq!(before.body["status"], "ok");
+
+    state.set_ready(false);
+
+    let after = send(
+        api::router(&Config::default(), state),
+        get_request("/health/ready"),
+    )
+    .await;
+    assert_eq!(after.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(after.body["status"], "shutting_down");
 }
 
 #[tokio::test]

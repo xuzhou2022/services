@@ -47,6 +47,22 @@ curl localhost:3000/health
 # {"status":"ok","name":"api","version":"0.1.0"}
 ```
 
+## Health endpoints
+
+| Path            | Meaning                                              |
+| --------------- | ---------------------------------------------------- |
+| `/health`       | General status                                       |
+| `/health/live`  | Liveness — a failure means restart the process       |
+| `/health/ready` | Readiness — 503 once shutdown starts; stop routing   |
+
+Keeping these separate matters during shutdown. On `SIGTERM` the service
+withdraws readiness, then keeps serving for `SHUTDOWN_DRAIN_SECS` before it
+stops accepting connections. In that window `/health/ready` answers 503 while
+`/health/live` still answers 200, so a load balancer deregisters the instance
+instead of an orchestrator restarting a process that is shutting down
+normally. Without the drain window the flip would be invisible: the socket
+closes immediately and probes get connection-refused rather than a 503.
+
 ## Configuration
 
 | Variable               | Default   | Notes                            |
@@ -55,6 +71,7 @@ curl localhost:3000/health
 | `PORT`                 | `3000`    | `0` binds an OS-assigned port    |
 | `REQUEST_TIMEOUT_SECS` | `30`      | Per-request deadline, in whole seconds |
 | `LOG_FORMAT`           | `text`    | `text` for humans, `json` for aggregators |
+| `SHUTDOWN_DRAIN_SECS`  | `5`       | Keep serving this long after readiness is withdrawn; `0` exits at once |
 | `RUST_LOG`             | `info`    | Standard `tracing` env filter    |
 
 A variable that is set but unparseable is a startup error rather than a
