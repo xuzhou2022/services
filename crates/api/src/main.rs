@@ -89,34 +89,47 @@ async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 /// would get connection-refused rather than the 503 it needs to see in order
 /// to deregister the instance gracefully.
 async fn shutdown(state: AppState, drain: Duration) {
-    let ctrl_c = async {
-        let _ = signal::ctrl_c().await;
-    };
-
-    #[cfg(unix)]
-    let terminate = async {
-        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
-            Ok(mut stream) => {
-                stream.recv().await;
-            }
-            Err(error) => tracing::warn!(%error, "SIGTERM handler unavailable"),
-        }
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
     tokio::select! {
-        () = ctrl_c => tracing::info!("received Ctrl-C, draining"),
-        () = terminate => tracing::info!("received SIGTERM, draining"),
+        () = ctrl_c() => tracing::info!("received Ctrl-C, draining"),
+        () = terminate() => tracing::info!("received SIGTERM, draining"),
     }
 
     state.set_ready(false);
 
     if drain.is_zero() {
         tracing::info!("readiness withdrawn, draining immediately");
-    } else {
-        tracing::info!(?drain, "readiness withdrawn, still serving during drain");
-        tokio::time::sleep(drain).await;
+        return;
     }
+
+    tracing::info!(?drain, "readiness withdrawn, still serving during drain");
+
+    // A second signal cuts the wait short. Otherwise an impatient Ctrl-C is
+    // swallowed and the only way out of a long drain is SIGKILL.
+    tokio::select! {
+        () = tokio::time::sleep(drain) => {}
+        () = ctrl_c() => tracing::info!("second signal, ending drain early"),
+        () = terminate() => tracing::info!("second signal, ending drain early"),
+    }
+}
+
+async fn ctrl_c() {
+    let _ = signal::ctrl_c().await;
+}
+
+#[cfg(unix)]
+async fn terminate() {
+    match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+        Ok(mut stream) => {
+            stream.recv().await;
+        }
+        Err(error) => {
+            tracing::warn!(%error, "SIGTERM handler unavailable");
+            std::future::pending::<()>().await
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn terminate() {
+    std::future::pending::<()>().await
 }
