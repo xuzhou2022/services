@@ -91,15 +91,22 @@ Ctrl-C or `SIGTERM`.
 Every request passes through, outermost first:
 
 1. `x-request-id` — reused if the client sends one, otherwise a fresh UUID.
-2. Propagation of that ID onto the response. It sits above the timeout so a
-   timed-out request is still traceable.
-3. A `tracing` span carrying method, URI, and request ID, so log lines
+2. Propagation of that ID onto the response.
+3. `X-Content-Type-Options: nosniff`.
+4. A `tracing` span carrying method, URI, and request ID, so log lines
    correlate with the header the client saw. Each response logs one line at
    `INFO` with status and latency, visible under the default filter.
-4. A per-request timeout returning `408 Request Timeout`.
+5. A per-request timeout returning `408 Request Timeout`.
+6. A panic catcher turning a panicking handler into `500` instead of a
+   dropped connection.
+
+Layers 2 and 3 sit above 5 and 6 on purpose, so the synthesized 408 and 500
+carry the request ID and the header too — not just responses a handler
+actually produced.
 
 Add routes in `routes()`; they inherit the whole stack. `apply_middleware`
-is public so tests can wrap a router of their own.
+is public so tests can wrap a router of their own, which is how the timeout
+and panic cases are exercised.
 
 ## CI
 
