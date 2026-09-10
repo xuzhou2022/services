@@ -339,6 +339,10 @@ mod tests {
             Duration::from_secs(DEFAULT_TIMEOUT_SECS)
         );
         assert_eq!(config.log_format, LogFormat::Text);
+        assert_eq!(
+            config.shutdown_drain,
+            Duration::from_secs(DEFAULT_DRAIN_SECS)
+        );
         assert_eq!(config, Config::default());
     }
 
@@ -349,12 +353,16 @@ mod tests {
             "PORT" => Some("8080".to_string()),
             "REQUEST_TIMEOUT_SECS" => Some("5".to_string()),
             "LOG_FORMAT" => Some("json".to_string()),
+            "SHUTDOWN_DRAIN_SECS" => Some("0".to_string()),
             _ => None,
         })
         .expect("overrides are valid");
         assert_eq!(config.addr, SocketAddr::from(([127, 0, 0, 1], 8080)));
         assert_eq!(config.request_timeout, Duration::from_secs(5));
         assert_eq!(config.log_format, LogFormat::Json);
+        // 0 is the documented escape hatch for an instant local Ctrl-C, and
+        // has to survive as 0 rather than falling back to the default.
+        assert_eq!(config.shutdown_drain, Duration::ZERO);
     }
 
     #[test]
@@ -362,6 +370,13 @@ mod tests {
         let err = Config::resolve(|key| (key == "LOG_FORMAT").then(|| "logfmt".to_string()))
             .expect_err("only text and json are supported");
         assert_eq!(err.to_string(), r#"LOG_FORMAT is not valid: "logfmt""#);
+    }
+
+    #[test]
+    fn unparseable_drain_is_rejected() {
+        let err = Config::resolve(|key| (key == "SHUTDOWN_DRAIN_SECS").then(|| "5s".to_string()))
+            .expect_err("drain is a plain second count");
+        assert_eq!(err.to_string(), r#"SHUTDOWN_DRAIN_SECS is not valid: "5s""#);
     }
 
     #[test]
