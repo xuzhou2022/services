@@ -205,7 +205,9 @@ impl AppState {
 /// The service's routes, without middleware. Add new endpoints here.
 pub fn routes(state: AppState) -> Router {
     Router::new()
-        .route("/health", get(health))
+        // `/health` predates the split and behaves as liveness, so it is an
+        // alias rather than a third implementation that could drift.
+        .route("/health", get(live))
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
         .with_state(state)
@@ -282,14 +284,8 @@ pub fn router(config: &Config, state: AppState) -> Router {
     apply_middleware(routes(state), config)
 }
 
-async fn health() -> Json<Health> {
-    Json(Health {
-        status: "ok",
-        service: INFO.clone(),
-    })
-}
-
 /// Liveness: the process is running and serving. Failing this means restart.
+/// Also serves `/health`.
 async fn live() -> Json<Health> {
     Json(Health {
         status: "ok",
