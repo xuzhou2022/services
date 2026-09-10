@@ -150,7 +150,11 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-/// Body of `GET /health`: `{"status":"ok","name":"api","version":"0.1.0"}`.
+/// Body shared by all three health endpoints, e.g.
+/// `{"status":"ok","name":"api","version":"0.1.0"}`.
+///
+/// `status` is `ok` except on `/health/ready` during shutdown, where it is
+/// `shutting_down` alongside a 503.
 #[derive(Debug, Serialize)]
 pub struct Health {
     pub status: &'static str,
@@ -238,11 +242,11 @@ impl MakeSpan<axum::body::Body> for RequestSpan {
 /// Split from [`router`] so tests can drive the stack against a purpose-built
 /// route (a deliberately slow one, for instance) instead of only `/health`.
 ///
-/// Ordering is outside-in, and the placement of propagation is load-bearing:
-/// it sits *above* the timeout so that the 408 the timeout synthesizes still
-/// carries `x-request-id`. Below the timeout it would only ever see responses
-/// the handler actually produced, and every timed-out request would come back
-/// untraceable.
+/// Ordering is outside-in, and the placement of ID propagation and the
+/// `nosniff` header is load-bearing: both sit *above* the timeout and the
+/// panic catcher, so the 408 and 500 those synthesize carry them too. Below,
+/// they would only ever see responses a handler actually produced, leaving
+/// every timed-out or panicking request untraceable.
 pub fn apply_middleware(router: Router, config: &Config) -> Router {
     router.layer(
         ServiceBuilder::new()
