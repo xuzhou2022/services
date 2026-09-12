@@ -5,7 +5,7 @@
 use serde::Serialize;
 
 /// Identifies a running service instance in logs and health responses.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ServiceInfo {
     pub name: &'static str,
     pub version: &'static str,

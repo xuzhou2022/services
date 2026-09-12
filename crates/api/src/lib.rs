@@ -289,7 +289,7 @@ pub fn router(config: &Config, state: AppState) -> Router {
 async fn live() -> Json<Health> {
     Json(Health {
         status: "ok",
-        service: INFO.clone(),
+        service: INFO,
     })
 }
 
@@ -307,7 +307,7 @@ async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Health>) {
         code,
         Json(Health {
             status,
-            service: INFO.clone(),
+            service: INFO,
         }),
     )
 }
