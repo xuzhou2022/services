@@ -51,7 +51,7 @@ curl localhost:3000/health
 
 | Path            | Meaning                                              |
 | --------------- | ---------------------------------------------------- |
-| `/health`       | General status                                       |
+| `/health`       | Alias for `/health/live`, kept for compatibility     |
 | `/health/live`  | Liveness — a failure means restart the process       |
 | `/health/ready` | Readiness — 503 once shutdown starts; stop routing   |
 

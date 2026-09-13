@@ -112,6 +112,28 @@ async fn client_supplied_request_id_is_preserved() {
 }
 
 #[tokio::test]
+async fn health_is_an_alias_for_liveness() {
+    // Both routes share one handler; this pins the README's claim that they
+    // are interchangeable, including once readiness has been withdrawn.
+    let state = AppState::new();
+    state.set_ready(false);
+
+    let alias = send(
+        api::router(&Config::default(), state.clone()),
+        get_request("/health"),
+    )
+    .await;
+    let live = send(
+        api::router(&Config::default(), state),
+        get_request("/health/live"),
+    )
+    .await;
+
+    assert_eq!(alias.status, live.status);
+    assert_eq!(alias.body, live.body);
+}
+
+#[tokio::test]
 async fn liveness_is_ok_even_while_draining() {
     let state = AppState::new();
     state.set_ready(false);
