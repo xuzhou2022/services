@@ -20,6 +20,7 @@ struct Response {
     content_type: Option<String>,
     request_id: Option<String>,
     nosniff: Option<String>,
+    cache_control: Option<String>,
     body: Value,
 }
 
@@ -37,6 +38,7 @@ async fn send(router: Router, request: Request<Body>) -> Response {
     let content_type = header(header::CONTENT_TYPE.as_str());
     let request_id = header(REQUEST_ID);
     let nosniff = header("x-content-type-options");
+    let cache_control = header(header::CACHE_CONTROL.as_str());
 
     let bytes = response
         .into_body()
@@ -50,6 +52,7 @@ async fn send(router: Router, request: Request<Body>) -> Response {
         content_type,
         request_id,
         nosniff,
+        cache_control,
         body: serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     }
 }
@@ -169,6 +172,10 @@ async fn readiness_is_ok_until_shutdown_begins() {
     .await;
     assert_eq!(after.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(after.body["status"], "shutting_down");
+    // Probes must never be cached, or a proxy could keep serving the earlier
+    // 200 and go on routing traffic to a draining instance.
+    assert_eq!(before.cache_control.as_deref(), Some("no-store"));
+    assert_eq!(after.cache_control.as_deref(), Some("no-store"));
 }
 
 #[tokio::test]

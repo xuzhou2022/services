@@ -210,6 +210,14 @@ pub fn routes(state: AppState) -> Router {
         .route("/health", get(live))
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        // A cached probe response is worse than none: with no directives a
+        // 200 from /health/ready is heuristically cacheable, and a shared
+        // proxy serving a stale one would keep routing traffic to an instance
+        // that has already withdrawn readiness.
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-store"),
+        ))
         .with_state(state)
 }
 
