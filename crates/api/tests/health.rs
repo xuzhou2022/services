@@ -91,7 +91,13 @@ async fn health_reports_ok_with_service_identity() {
 
 #[tokio::test]
 async fn unknown_path_is_not_found() {
-    assert_eq!(get_path("/nope").await.status, StatusCode::NOT_FOUND);
+    let response = get_path("/nope").await;
+
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    // Errors the router generates itself are JSON too, so a client parsing
+    // this API does not hit an empty body on the failure path.
+    assert_eq!(response.content_type.as_deref(), Some("application/json"));
+    assert_eq!(response.body, json!({"status": 404, "error": "Not Found"}));
 }
 
 #[tokio::test]

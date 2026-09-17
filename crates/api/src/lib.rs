@@ -162,6 +162,24 @@ pub struct Health {
     pub service: ServiceInfo,
 }
 
+/// Body for responses the router generates itself, so a client parsing JSON
+/// gets JSON on an error rather than an empty body.
+#[derive(Debug, Serialize)]
+pub struct ApiError {
+    pub status: u16,
+    pub error: &'static str,
+}
+
+fn error_response(status: StatusCode) -> (StatusCode, Json<ApiError>) {
+    (
+        status,
+        Json(ApiError {
+            status: status.as_u16(),
+            error: status.canonical_reason().unwrap_or("Error"),
+        }),
+    )
+}
+
 /// Tracks whether this instance should be receiving traffic.
 ///
 /// Liveness and readiness answer different questions. Liveness is "is the
@@ -210,6 +228,8 @@ pub fn routes(state: AppState) -> Router {
         .route("/health", get(live))
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
+        .fallback(|| async { error_response(StatusCode::NOT_FOUND) })
+        .method_not_allowed_fallback(|| async { error_response(StatusCode::METHOD_NOT_ALLOWED) })
         // A cached probe response is worse than none: with no directives a
         // 200 from /health/ready is heuristically cacheable, and a shared
         // proxy serving a stale one would keep routing traffic to an instance
