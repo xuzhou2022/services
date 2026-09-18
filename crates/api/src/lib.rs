@@ -7,11 +7,13 @@ use axum::{
     Json, Router,
     extract::{Request, State},
     http::{HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
     routing::get,
 };
 use common::ServiceInfo;
 use serde::Serialize;
 use std::{
+    any::Any,
     env,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{
@@ -180,6 +182,22 @@ fn error_response(status: StatusCode) -> (StatusCode, Json<ApiError>) {
     )
 }
 
+/// Renders a caught panic as JSON, matching the router's other errors.
+///
+/// `CatchPanicLayer`'s default returns an empty body, so the one response a
+/// client is least equipped to interpret was also the least descriptive. The
+/// panic is still logged at ERROR; only the body changes.
+fn panic_response(err: Box<dyn Any + Send + 'static>) -> Response {
+    let detail = err
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| err.downcast_ref::<&str>().copied())
+        .unwrap_or("unknown panic");
+    tracing::error!("Service panicked: {detail}");
+
+    error_response(StatusCode::INTERNAL_SERVER_ERROR).into_response()
+}
+
 /// Tracks whether this instance should be receiving traffic.
 ///
 /// Liveness and readiness answer different questions. Liveness is "is the
@@ -304,7 +322,7 @@ pub fn apply_middleware(router: Router, config: &Config) -> Router {
             // the trace and propagation layers. Without it a panicking handler
             // drops the connection: no status, no access-log line, nothing for
             // the client or the logs to go on.
-            .layer(CatchPanicLayer::new()),
+            .layer(CatchPanicLayer::custom(panic_response)),
     )
 }
 

@@ -202,6 +202,11 @@ async fn panicking_handler_becomes_a_500() {
     .await;
 
     assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.content_type.as_deref(), Some("application/json"));
+    assert_eq!(
+        response.body,
+        json!({"status": 500, "error": "Internal Server Error"})
+    );
     // Caught inside the stack, so the response still gets an id to trace by.
     assert!(response.request_id.is_some());
     // The header layer sits above catch-panic, so synthesized errors get it.
