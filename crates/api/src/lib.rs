@@ -182,6 +182,31 @@ fn error_response(status: StatusCode) -> (StatusCode, Json<ApiError>) {
     )
 }
 
+/// Fills in a JSON body for error responses synthesized without one.
+///
+/// `TimeoutLayer` only lets its status be configured, not its body, so the
+/// 408 arrived empty. Keying off a missing content-type rather than the
+/// specific status keeps any future body-less layer covered too; responses
+/// that already carry a body are passed through untouched.
+async fn json_error_body(response: Response) -> Response {
+    let status = response.status();
+    let body_less = response.headers().get(header::CONTENT_TYPE).is_none();
+
+    if !(status.is_client_error() || status.is_server_error()) || !body_less {
+        return response;
+    }
+
+    let (parts, _) = response.into_parts();
+    let mut replacement = error_response(status).into_response();
+    // Preserve anything an inner layer already attached, e.g. the request id.
+    for (name, value) in &parts.headers {
+        if !replacement.headers().contains_key(name) {
+            replacement.headers_mut().insert(name, value.clone());
+        }
+    }
+    replacement
+}
+
 /// Renders a caught panic as JSON, matching the router's other errors.
 ///
 /// `CatchPanicLayer`'s default returns an empty body, so the one response a
@@ -296,34 +321,38 @@ impl MakeSpan<axum::body::Body> for RequestSpan {
 /// they would only ever see responses a handler actually produced, leaving
 /// every timed-out or panicking request untraceable.
 pub fn apply_middleware(router: Router, config: &Config) -> Router {
-    router.layer(
-        ServiceBuilder::new()
-            .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-            .layer(PropagateRequestIdLayer::x_request_id())
-            // Above the timeout and panic layers so the synthesized 408 and
-            // 500 carry it too, not just handler responses.
-            .layer(SetResponseHeaderLayer::overriding(
-                header::X_CONTENT_TYPE_OPTIONS,
-                HeaderValue::from_static("nosniff"),
-            ))
-            .layer(
-                TraceLayer::new_for_http()
-                    .make_span_with(RequestSpan)
-                    // tower-http emits this at DEBUG, so with the default
-                    // `info` filter the service logged nothing per request.
-                    // One INFO line per response is the access log.
-                    .on_response(DefaultOnResponse::new().level(Level::INFO)),
-            )
-            .layer(TimeoutLayer::with_status_code(
-                StatusCode::REQUEST_TIMEOUT,
-                config.request_timeout,
-            ))
-            // Innermost, so the 500 it produces still travels back out through
-            // the trace and propagation layers. Without it a panicking handler
-            // drops the connection: no status, no access-log line, nothing for
-            // the client or the logs to go on.
-            .layer(CatchPanicLayer::custom(panic_response)),
-    )
+    router
+        .layer(
+            ServiceBuilder::new()
+                .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+                .layer(PropagateRequestIdLayer::x_request_id())
+                // Above the timeout and panic layers so the synthesized 408 and
+                // 500 carry it too, not just handler responses.
+                .layer(SetResponseHeaderLayer::overriding(
+                    header::X_CONTENT_TYPE_OPTIONS,
+                    HeaderValue::from_static("nosniff"),
+                ))
+                .layer(
+                    TraceLayer::new_for_http()
+                        .make_span_with(RequestSpan)
+                        // tower-http emits this at DEBUG, so with the default
+                        // `info` filter the service logged nothing per request.
+                        // One INFO line per response is the access log.
+                        .on_response(DefaultOnResponse::new().level(Level::INFO)),
+                )
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    config.request_timeout,
+                ))
+                // Innermost, so the 500 it produces still travels back out through
+                // the trace and propagation layers. Without it a panicking handler
+                // drops the connection: no status, no access-log line, nothing for
+                // the client or the logs to go on.
+                .layer(CatchPanicLayer::custom(panic_response)),
+        )
+        // Outermost, applied separately: CatchPanicLayer changes the body type
+        // mid-stack, so this only typechecks at the Router boundary.
+        .layer(axum::middleware::map_response(json_error_body))
 }
 
 pub fn router(config: &Config, state: AppState) -> Router {

@@ -230,6 +230,11 @@ async fn slow_handler_is_cut_off_by_the_timeout() {
     let response = send(api::apply_middleware(slow, &config), get_request("/slow")).await;
 
     assert_eq!(response.status, StatusCode::REQUEST_TIMEOUT);
+    assert_eq!(response.content_type.as_deref(), Some("application/json"));
+    assert_eq!(
+        response.body,
+        json!({"status": 408, "error": "Request Timeout"})
+    );
     // Propagation runs innermost so even a synthesized 408 carries the id.
     assert!(response.request_id.is_some());
 }
