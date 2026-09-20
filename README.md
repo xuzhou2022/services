@@ -108,6 +108,23 @@ Add routes in `routes()`; they inherit the whole stack. `apply_middleware`
 is public so tests can wrap a router of their own, which is how the timeout
 and panic cases are exercised.
 
+## Errors
+
+Every response is JSON, including the ones no handler produced:
+
+```json
+{"status": 404, "error": "Not Found"}
+```
+
+That covers `404`, `405`, the `408` from the request timeout, and the `500`
+from a panicking handler. `error` comes from the status code's canonical
+reason, so it cannot drift from the code it reports. All of them still carry
+`x-request-id`, so a failed request is traceable from what the client saw.
+
+The rule is enforced by a layer keyed on a missing content-type rather than
+on a list of statuses, so a body-less layer added later is covered without
+being enumerated here.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every pull request and on pushes to
