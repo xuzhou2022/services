@@ -101,6 +101,26 @@ async fn unknown_path_is_not_found() {
 }
 
 #[tokio::test]
+async fn wrong_method_is_method_not_allowed() {
+    let request = Request::builder()
+        .method("POST")
+        .uri("/health")
+        .body(Body::empty())
+        .expect("request builds");
+
+    let response = send(api::router(&Config::default(), AppState::new()), request).await;
+
+    // Without method_not_allowed_fallback axum answers 405 with an empty
+    // body, which would break the JSON contract the 404 path already keeps.
+    assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(response.content_type.as_deref(), Some("application/json"));
+    assert_eq!(
+        response.body,
+        json!({"status": 405, "error": "Method Not Allowed"})
+    );
+}
+
+#[tokio::test]
 async fn request_id_is_generated_when_absent() {
     let id = get_path("/health")
         .await

@@ -264,6 +264,11 @@ impl AppState {
 }
 
 /// The service's routes, without middleware. Add new endpoints here.
+///
+/// Unmatched paths and methods need no fallback here: axum's own 404 and 405
+/// arrive without a content-type, which is exactly what `json_error_body`
+/// keys on, so they pick up the JSON body from the middleware stack. Adding
+/// fallbacks back would be dead code that reads as load-bearing.
 pub fn routes(state: AppState) -> Router {
     Router::new()
         // `/health` predates the split and behaves as liveness, so it is an
@@ -271,8 +276,6 @@ pub fn routes(state: AppState) -> Router {
         .route("/health", get(live))
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
-        .fallback(|| async { error_response(StatusCode::NOT_FOUND) })
-        .method_not_allowed_fallback(|| async { error_response(StatusCode::METHOD_NOT_ALLOWED) })
         // A cached probe response is worse than none: with no directives a
         // 200 from /health/ready is heuristically cacheable, and a shared
         // proxy serving a stale one would keep routing traffic to an instance
