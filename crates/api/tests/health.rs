@@ -98,6 +98,9 @@ async fn unknown_path_is_not_found() {
     // this API does not hit an empty body on the failure path.
     assert_eq!(response.content_type.as_deref(), Some("application/json"));
     assert_eq!(response.body, json!({"status": 404, "error": "Not Found"}));
+    // 404 is heuristically cacheable, so it must opt out explicitly.
+    assert_eq!(response.cache_control.as_deref(), Some("no-store"));
+    assert_eq!(response.nosniff.as_deref(), Some("nosniff"));
 }
 
 #[tokio::test]
@@ -257,4 +260,8 @@ async fn slow_handler_is_cut_off_by_the_timeout() {
     );
     // Propagation runs innermost so even a synthesized 408 carries the id.
     assert!(response.request_id.is_some());
+    // json_error_body rebuilds this response to attach a body, so the header
+    // has to be copied across rather than surviving on its own. Deleting that
+    // copy fails here and in unknown_path_is_not_found.
+    assert_eq!(response.nosniff.as_deref(), Some("nosniff"));
 }
