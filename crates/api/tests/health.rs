@@ -21,6 +21,7 @@ struct Response {
     request_id: Option<String>,
     nosniff: Option<String>,
     cache_control: Option<String>,
+    allow: Option<String>,
     body: Value,
 }
 
@@ -39,6 +40,7 @@ async fn send(router: Router, request: Request<Body>) -> Response {
     let request_id = header(REQUEST_ID);
     let nosniff = header("x-content-type-options");
     let cache_control = header(header::CACHE_CONTROL.as_str());
+    let allow = header(header::ALLOW.as_str());
 
     let bytes = response
         .into_body()
@@ -53,6 +55,7 @@ async fn send(router: Router, request: Request<Body>) -> Response {
         request_id,
         nosniff,
         cache_control,
+        allow,
         body: serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     }
 }
@@ -113,14 +116,19 @@ async fn wrong_method_is_method_not_allowed() {
 
     let response = send(api::router(&Config::default(), AppState::new()), request).await;
 
-    // Without method_not_allowed_fallback axum answers 405 with an empty
-    // body, which would break the JSON contract the 404 path already keeps.
     assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED);
+    // axum's own 405 is body-less, so json_error_body supplies this. There is
+    // no router fallback behind it; 2746b0d removed that as dead code.
     assert_eq!(response.content_type.as_deref(), Some("application/json"));
     assert_eq!(
         response.body,
         json!({"status": 405, "error": "Method Not Allowed"})
     );
+    // RFC 9110 requires Allow on a 405. axum's method routing supplies it
+    // independently of the middleware stack, so it survives the body rebuild
+    // on its own; asserted so a change to how 405s are produced cannot drop
+    // it unnoticed.
+    assert_eq!(response.allow.as_deref(), Some("GET,HEAD"));
 }
 
 #[tokio::test]
