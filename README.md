@@ -90,19 +90,27 @@ Ctrl-C or `SIGTERM`.
 
 Every request passes through, outermost first:
 
-1. `x-request-id` — reused if the client sends one, otherwise a fresh UUID.
-2. Propagation of that ID onto the response.
-3. `X-Content-Type-Options: nosniff`.
-4. A `tracing` span carrying method, URI, and request ID, so log lines
+1. A JSON body filler for error responses that arrive without one — see
+   [Errors](#errors). Outermost, so it catches what the layers below
+   synthesize.
+2. `x-request-id` — reused if the client sends one, otherwise a fresh UUID.
+3. Propagation of that ID onto the response.
+4. `X-Content-Type-Options: nosniff`.
+5. A `tracing` span carrying method, URI, and request ID, so log lines
    correlate with the header the client saw. Each response logs one line at
    `INFO` with status and latency, visible under the default filter.
-5. A per-request timeout returning `408 Request Timeout`.
-6. A panic catcher turning a panicking handler into `500` instead of a
+6. A per-request timeout returning `408 Request Timeout`.
+7. A panic catcher turning a panicking handler into `500` instead of a
    dropped connection.
 
-Layers 2 and 3 sit above 5 and 6 on purpose, so the synthesized 408 and 500
+Layers 3 and 4 sit above 6 and 7 on purpose, so the synthesized 408 and 500
 carry the request ID and the header too — not just responses a handler
-actually produced.
+actually produced. Layer 1 has to be outermost for a duller reason: the panic
+catcher changes the body type, so it only typechecks at the router boundary.
+
+`Cache-Control: no-store` is applied separately, inside `routes()` rather than
+in this stack, because it is a property of probe endpoints and not of
+everything the service will serve.
 
 Add routes in `routes()`; they inherit the whole stack. `apply_middleware`
 is public so tests can wrap a router of their own, which is how the timeout
