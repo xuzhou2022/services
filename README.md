@@ -6,8 +6,9 @@ A Cargo workspace for backend services.
 
 ## Status
 
-Early. `api` serves a single `/health` route over axum; there is no domain
-logic, persistence, or auth yet.
+Early. `api` serves liveness and readiness probes over axum, with graceful
+shutdown and the middleware below; there is no domain logic, persistence, or
+auth yet.
 
 ## Layout
 
