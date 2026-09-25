@@ -198,10 +198,16 @@ async fn json_error_body(response: Response) -> Response {
 
     let (parts, _) = response.into_parts();
     let mut replacement = error_response(status).into_response();
+
     // Preserve anything an inner layer already attached, e.g. the request id.
+    // Headers the replacement sets itself — content-type, content-length —
+    // describe the new body and must win, so they are collected up front:
+    // testing `contains_key` as we go would also skip the second value of a
+    // repeated header, silently truncating it to the first.
+    let own: Vec<_> = replacement.headers().keys().cloned().collect();
     for (name, value) in &parts.headers {
-        if !replacement.headers().contains_key(name) {
-            replacement.headers_mut().insert(name, value.clone());
+        if !own.contains(name) {
+            replacement.headers_mut().append(name, value.clone());
         }
     }
     replacement

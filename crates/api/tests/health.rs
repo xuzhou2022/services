@@ -6,6 +6,7 @@ use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode, header},
+    response::IntoResponse,
     routing::get,
 };
 use http_body_util::BodyExt;
@@ -272,4 +273,37 @@ async fn slow_handler_is_cut_off_by_the_timeout() {
     // has to be copied across rather than surviving on its own. Deleting that
     // copy fails here and in unknown_path_is_not_found.
     assert_eq!(response.nosniff.as_deref(), Some("nosniff"));
+}
+
+#[tokio::test]
+async fn repeated_headers_survive_the_body_rebuild() {
+    // A body-less error carrying a header twice: json_error_body rebuilds the
+    // response, so both values have to be carried across, not just the first.
+    let two_cookies = Router::new().route(
+        "/two",
+        get(|| async {
+            let mut response = StatusCode::NOT_FOUND.into_response();
+            response
+                .headers_mut()
+                .append(header::SET_COOKIE, "a=1".parse().unwrap());
+            response
+                .headers_mut()
+                .append(header::SET_COOKIE, "b=2".parse().unwrap());
+            response
+        }),
+    );
+
+    let response = api::apply_middleware(two_cookies, &Config::default())
+        .oneshot(get_request("/two"))
+        .await
+        .expect("router is infallible");
+
+    let cookies: Vec<_> = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().expect("ascii").to_owned())
+        .collect();
+
+    assert_eq!(cookies, vec!["a=1".to_string(), "b=2".to_string()]);
 }
