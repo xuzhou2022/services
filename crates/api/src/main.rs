@@ -3,6 +3,8 @@ use std::{process::ExitCode, time::Duration};
 use tokio::{net::TcpListener, signal};
 use tracing_subscriber::{EnvFilter, fmt};
 
+const DEFAULT_LOG_FILTER: &str = "info";
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // Config is read before logging is initialized, since it chooses the log
@@ -42,10 +44,17 @@ async fn main() -> ExitCode {
 /// discarded the whole filter on one bad directive, so a typo left the service
 /// logging at `info` while appearing to honor the request.
 fn log_filter() -> Result<EnvFilter, String> {
-    match std::env::var("RUST_LOG") {
-        Ok(raw) => EnvFilter::try_new(&raw)
+    resolve_log_filter(|key| std::env::var(key).ok())
+}
+
+/// Split from [`log_filter`] for the same reason `Config::resolve` is: tests
+/// can supply a value without mutating process-wide environment state, which
+/// would race other tests in the same binary.
+fn resolve_log_filter(lookup: impl Fn(&str) -> Option<String>) -> Result<EnvFilter, String> {
+    match lookup("RUST_LOG") {
+        Some(raw) => EnvFilter::try_new(&raw)
             .map_err(|error| format!("RUST_LOG is not valid: {raw:?} ({error})")),
-        Err(_) => Ok(EnvFilter::new("info")),
+        None => Ok(EnvFilter::new(DEFAULT_LOG_FILTER)),
     }
 }
 
@@ -132,4 +141,40 @@ async fn terminate() {
 #[cfg(not(unix))]
 async fn terminate() {
     std::future::pending::<()>().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absent_rust_log_defaults_to_info() {
+        let filter = resolve_log_filter(|_| None).expect("the default is valid");
+        assert_eq!(filter.to_string(), DEFAULT_LOG_FILTER);
+    }
+
+    #[test]
+    fn valid_rust_log_is_honored_not_defaulted() {
+        let directives = "warn,api=debug";
+        let filter =
+            resolve_log_filter(|_| Some(directives.to_string())).expect("directives are valid");
+
+        // Compared against a filter built from the same string, since
+        // EnvFilter's Display reorders directives; asserting a literal would
+        // be testing its formatting rather than this function.
+        assert_eq!(filter.to_string(), EnvFilter::new(directives).to_string());
+        assert_ne!(filter.to_string(), DEFAULT_LOG_FILTER);
+    }
+
+    #[test]
+    fn malformed_rust_log_is_rejected() {
+        // The whole filter used to be discarded on one bad directive, so this
+        // silently logged at info while looking like it had been honored.
+        let error = resolve_log_filter(|_| Some("warn,foo=notalevel".to_string()))
+            .expect_err("a bad level must not fall back to the default");
+        assert!(
+            error.starts_with(r#"RUST_LOG is not valid: "warn,foo=notalevel""#),
+            "message should name the offending value, got: {error}"
+        );
+    }
 }
