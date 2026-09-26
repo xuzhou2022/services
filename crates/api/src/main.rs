@@ -7,20 +7,11 @@ const DEFAULT_LOG_FILTER: &str = "info";
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    // Config is read before logging is initialized, since it chooses the log
-    // format. A failure here therefore reports on stderr rather than through
-    // tracing.
-    let config = match Config::from_env() {
-        Ok(config) => config,
+    let (config, filter) = match read_environment() {
+        Ok(pair) => pair,
         Err(error) => {
-            eprintln!("{} failed to start: {error}", INFO.banner());
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let filter = match log_filter() {
-        Ok(filter) => filter,
-        Err(error) => {
+            // Reported on stderr, not through tracing: both of these are read
+            // before logging exists, since one of them decides its format.
             eprintln!("{} failed to start: {error}", INFO.banner());
             return ExitCode::FAILURE;
         }
@@ -35,6 +26,14 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// Everything read from the environment, so `main` has one failure branch
+/// rather than an identical one per variable group.
+fn read_environment() -> Result<(Config, EnvFilter), String> {
+    let config = Config::from_env().map_err(|error| error.to_string())?;
+    let filter = log_filter()?;
+    Ok((config, filter))
 }
 
 /// Builds the log filter from `RUST_LOG`, defaulting to `info` when unset.
