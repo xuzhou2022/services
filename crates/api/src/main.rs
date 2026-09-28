@@ -73,6 +73,9 @@ async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(
         addr = %listener.local_addr()?,
         timeout = ?config.request_timeout,
+        // Worth stating up front: its effect only shows up at shutdown, as a
+        // pause between SIGTERM and exit that otherwise looks like a hang.
+        drain = ?config.shutdown_drain,
         "{} listening",
         INFO.banner(),
     );
